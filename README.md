@@ -141,9 +141,9 @@ Configuration variables and safe local defaults are listed in `.env.example`. Ne
 
 ## Free-tier deployment with Vercel and Render
 
-This is a low-traffic personal/demo setup, not production-reliable hosting. It uses a Vercel Hobby frontend, one Render Free API, Neon Free PostgreSQL, Qdrant Cloud Free, Cloudflare R2 Standard within its free allowances, and Gemini API free-tier models. Provider limits and terms can change. Staying within free allowances is required to remain at $0; exceeding allowances or choosing paid resources may incur charges. Do not add a payment method or enable paid upgrades if you cannot accept any charges.
+This is a low-traffic personal/demo setup, not production-reliable hosting. It uses a Vercel Hobby frontend, one Render Free API, Neon Free PostgreSQL, Qdrant Cloud Free, and Gemini API free-tier models. Uploaded originals use Render's temporary filesystem, so no S3/R2 account is required. Provider limits and terms can change. Staying within free allowances is required to remain at $0; exceeding allowances or choosing paid resources may incur charges. Do not add a payment method or enable paid upgrades if you cannot accept any charges.
 
-Render's Free web service sleeps after inactivity and has ephemeral local storage. Its Free PostgreSQL expires after 30 days, so use Neon instead. Inline ingestion runs as an API background task and avoids Redis and a separate paid worker, but a restart during indexing can interrupt that job. Keep uploaded documents in R2, not on Render's filesystem.
+Render's Free web service sleeps after inactivity and has ephemeral local storage. Its Free PostgreSQL expires after 30 days, so use Neon instead. Inline ingestion runs as an API background task and avoids Redis and a separate paid worker, but a restart during indexing can interrupt that job. Uploaded original files can disappear when Render sleeps, restarts, or redeploys. Once indexing completes, the extracted text and vectors are stored in Neon and Qdrant and remain available for retrieval; the original upload is not durable.
 
 ### 1. Push the free-ingestion code to GitHub
 
@@ -161,8 +161,7 @@ git push origin main
 
 1. **Neon:** create a Free project and PostgreSQL database. Copy its connection string; keep it private.
 2. **Qdrant Cloud:** create a Free cluster and API key. Keep the cluster URL and key.
-3. **Cloudflare R2:** create a Standard storage bucket and S3-compatible API credentials limited to that bucket. Record the bucket name, account S3 API endpoint, access key, and secret. Use `auto` as the region. Stay within R2's current Free monthly storage and operations allowance.
-4. **Google AI Studio:** create a Gemini API key. Confirm the selected generation and embedding models are available to the free API tier, and review the free-tier data terms before sending documents.
+3. **Google AI Studio:** create a Gemini API key. Confirm the selected generation and embedding models are available to the free API tier, and review the free-tier data terms before sending documents.
 
 Use only plans labeled Free. If a provider asks for billing details, check that a free-only account is possible and disable upgrades/usage-based billing before continuing. A free-tier label alone does not guarantee that out-of-quota usage cannot be billed.
 
@@ -174,11 +173,7 @@ Use only plans labeled Free. If a provider asks for billing details, check that 
    - `QDRANT_URL` and `QDRANT_API_KEY`: Qdrant Free cluster details.
    - `GEMINI_API_KEY`: Google AI Studio key.
    - `CORS_ORIGINS`: set this to the final Vercel origin after step 4, such as `https://your-project.vercel.app`, with no trailing slash.
-   - `S3_BUCKET`: R2 bucket name.
-   - `S3_REGION`: `auto`.
-   - `S3_ENDPOINT_URL`: account-specific R2 S3 API endpoint, for example `https://ACCOUNT_ID.r2.cloudflarestorage.com`.
-   - `S3_ACCESS_KEY_ID` and `S3_SECRET_ACCESS_KEY`: R2 credentials.
-3. Keep Blueprint values `RIA_ENV=production`, `INGESTION_MODE=inline`, `COOKIE_SECURE=true`, and `UPLOAD_STORAGE=s3`. Render generates the private `SECRET_KEY`. No Redis URL or worker is needed in this mode.
+3. Keep Blueprint values `RIA_ENV=production`, `INGESTION_MODE=inline`, `COOKIE_SECURE=true`, and `UPLOAD_STORAGE=local`. Render generates the private `SECRET_KEY`. No Redis URL, worker, S3 account, or S3 credentials are needed in this mode.
 4. Deploy the service and copy its public URL, for example `https://ria-api-xxxx.onrender.com`. Visit `/health`; it should show `"status":"ok"` and `"queue":"inline"`. If it fails, inspect Render logs and confirm that all provider environment variables are set.
 
 ### 4. Deploy the frontend on Vercel
