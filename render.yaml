@@ -42,18 +42,10 @@ services:
   - type: web
     name: ria-api
     runtime: python
+    plan: free   # <--- ADDED THIS to explicitly force free tier
     rootDir: backend
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
-    envVars:
-      - fromGroup: ria-production
-
-  - type: worker
-    name: ria-worker
-    runtime: python
-    rootDir: backend
-    buildCommand: pip install -r requirements.txt
-    startCommand: python -m app.worker
     envVars:
       - fromGroup: ria-production
