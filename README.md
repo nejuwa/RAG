@@ -2,6 +2,8 @@
 
 RIA is an MVP implementation of the Multi-Source Research Intelligence Agent SRS. It provides private collections, asynchronous PDF/DOCX/TXT/Markdown and public-web ingestion, hybrid semantic/keyword retrieval, and answers with evidence-linked citations. Visitors can also ask general questions without an account; guest questions are not saved and do not use private documents.
 
+**Live demo:** [https://rag-lemon-two.vercel.app/](https://rag-lemon-two.vercel.app/)
+
 ## Run locally without Docker (Windows)
 
 The local profile uses your PostgreSQL database and an embedded, on-disk Qdrant index. Ingestion runs in the API process, so Docker, Redis, and a separate worker are not required. PostgreSQL must be installed and running on your computer, and the database `rag` must exist. Run the backend and frontend in two separate PowerShell terminals.
