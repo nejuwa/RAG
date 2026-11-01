@@ -132,66 +132,65 @@ The tests cover API authorization, citations, file validation, safe URL checks, 
 - Every collection is private and owned by one account. Server routes verify ownership before source access and retrieval.
 - Supported uploads are PDF, DOCX, TXT, and Markdown, up to 20 MB and 500 PDF pages by default. PDF page numbers and available headings are retained. OCR is not included.
 - URL ingestion fetches one public HTTP/HTTPS page, checks robots.txt, blocks non-public IP destinations, limits redirects/time/response size, rate-limits each domain, and does not crawl linked pages.
-- In the Docker profile, ingestion jobs use Redis/RQ; in local mode, ingestion runs as an API background task. Chunk vectors are stored in Qdrant; source metadata, text, users, and conversations are stored in PostgreSQL.
+- In the Docker profile, ingestion jobs use Redis/RQ. Local mode and the single-service free deployment can run ingestion as API background tasks with `INGESTION_MODE=inline`. Chunk vectors are stored in Qdrant; source metadata, text, users, and conversations are stored in PostgreSQL.
 - Retrieval combines Qdrant cosine search with a BM25-style lexical ranker and reciprocal-rank fusion. Gemini creates embeddings and generates answers.
 - Citation labels are accepted only when they map to evidence retrieved for that request. If the model provides no valid evidence labels, its uncited output is not shown as a supported answer.
 - This initial slice does not include collection sharing, deep-research planning, OCR, password reset/email, Google sign-in, administration, or report export. Review provider privacy, credentials, quotas, HTTPS, and backups before production use.
 
 Configuration variables and safe local defaults are listed in `.env.example`. Never commit `.env` or provider credentials.
 
-## Deploy to Vercel and Render
+## Free-tier deployment with Vercel and Render
 
-The frontend is hosted on Vercel and the FastAPI API plus ingestion worker run on Render. Production requires hosted PostgreSQL, Redis/Key Value, Qdrant Cloud, and an S3-compatible bucket because Render's local filesystem is not shared or durable across service instances. This repository includes a Render Blueprint in `render.yaml`; the database, Redis, Qdrant, and object-storage accounts are created separately.
+This is a low-traffic personal/demo setup, not production-reliable hosting. It uses a Vercel Hobby frontend, one Render Free API, Neon Free PostgreSQL, Qdrant Cloud Free, Cloudflare R2 Standard within its free allowances, and Gemini API free-tier models. Provider limits and terms can change. Staying within free allowances is required to remain at $0; exceeding allowances or choosing paid resources may incur charges. Do not add a payment method or enable paid upgrades if you cannot accept any charges.
 
-**Review provider pricing before provisioning anything.** Render services and hosted databases/Redis, Qdrant, and object storage may incur charges. Do not put credentials in this repository, Vercel source, or chat.
+Render's Free web service sleeps after inactivity and has ephemeral local storage. Its Free PostgreSQL expires after 30 days, so use Neon instead. Inline ingestion runs as an API background task and avoids Redis and a separate paid worker, but a restart during indexing can interrupt that job. Keep uploaded documents in R2, not on Render's filesystem.
 
-### 1. Push the project to a private GitHub repository
+### 1. Push the free-ingestion code to GitHub
 
-The project must be pushed to GitHub before Vercel and Render can deploy it. From PowerShell in the project root, check that `.env`, `.env.local`, virtual environments, and generated data are not staged. Then initialize and push the project using the URL of a new private GitHub repository:
+The Render Blueprint now configures only a Free web service and sets `INGESTION_MODE=inline`. Commit and push the deployment changes from the project root. Do not stage `.env`, `frontend/.env.local`, virtual environments, or generated data:
 
 ```powershell
-git init
-git add .
-git status
-git commit -m "Prepare RIA deployment"
-git branch -M main
-git remote add origin https://github.com/YOUR_ACCOUNT/YOUR_PRIVATE_REPOSITORY.git
-git push -u origin main
+git status --short
+git add README.md render.yaml backend/app/settings.py backend/app/jobs.py backend/app/main.py backend/app/worker.py backend/tests/test_core.py backend/tests/test_api.py
+git diff --cached --check
+git commit -m "Support free single-service deployment"
+git push origin main
 ```
 
-If Git reports that an identity is not configured, set `user.name` and `user.email` locally before committing. Never force-push over a repository that already contains work.
+### 2. Create the free provider resources
 
-### 2. Create the hosted services
+1. **Neon:** create a Free project and PostgreSQL database. Copy its connection string; keep it private.
+2. **Qdrant Cloud:** create a Free cluster and API key. Keep the cluster URL and key.
+3. **Cloudflare R2:** create a Standard storage bucket and S3-compatible API credentials limited to that bucket. Record the bucket name, account S3 API endpoint, access key, and secret. Use `auto` as the region. Stay within R2's current Free monthly storage and operations allowance.
+4. **Google AI Studio:** create a Gemini API key. Confirm the selected generation and embedding models are available to the free API tier, and review the free-tier data terms before sending documents.
 
-1. Create a PostgreSQL database and a Redis-compatible service (Render Key Value or another managed Redis provider). Choose plans based on your needs and budget. Copy the PostgreSQL **internal** connection string and Redis **internal** URL; keep them private.
-2. Create a Qdrant Cloud cluster and collection access key. Copy the cluster URL and API key.
-3. Create an S3-compatible bucket and access credentials restricted to that bucket. For Cloudflare R2, set `S3_REGION=auto` and `S3_ENDPOINT_URL` to the account's S3 API endpoint. For AWS S3, use the bucket's AWS region and leave the endpoint URL empty.
+Use only plans labeled Free. If a provider asks for billing details, check that a free-only account is possible and disable upgrades/usage-based billing before continuing. A free-tier label alone does not guarantee that out-of-quota usage cannot be billed.
 
-### 3. Deploy the backend on Render
+### 3. Deploy the API on Render
 
-1. In Render, create a Blueprint from the GitHub repository and select the repository's `render.yaml`. The Blueprint defines the `ria-api` web service and `ria-worker` background worker; it does not provision PostgreSQL, Redis, Qdrant, or a bucket.
-2. In the Render `ria-production` environment group, set the requested values:
-   - `DATABASE_URL`: hosted PostgreSQL connection string. Use the provider's internal URL as provided; the app normalizes `postgres://` and `postgresql://` to the installed psycopg 3 driver.
-   - `REDIS_URL`: the Redis provider's internal connection URL.
-   - `QDRANT_URL` and `QDRANT_API_KEY`: Qdrant Cloud connection details.
-   - `GEMINI_API_KEY`: a key with access to the configured answer and embedding models.
-   - `CORS_ORIGINS`: your deployed Vercel origin, for example `https://your-project.vercel.app` (no trailing slash).
-   - `S3_BUCKET`, `S3_REGION`, `S3_ENDPOINT_URL`, `S3_ACCESS_KEY_ID`, and `S3_SECRET_ACCESS_KEY`: your bucket and its credentials. For AWS, leave `S3_ENDPOINT_URL` empty.
-3. Keep `RIA_ENV=production`, `COOKIE_SECURE=true`, and `UPLOAD_STORAGE=s3`; the Blueprint sets these values. The generated `SECRET_KEY` is managed by Render. Apply the same environment group to both services.
-4. Deploy the API and worker, then check `https://YOUR_RENDER_API/health`. It should report `"status":"ok"` with database, vector store, and queue checks all available.
-
-Do not use a Render disk or local upload storage for production uploads: the worker must be able to read every file uploaded by the API, and local instance files are not durable/shared.
+1. In Render, create a Blueprint connected to `nejuwa/RAG` on branch `main`. Render reads the root `render.yaml`, which now declares one `ria-api` web service with `plan: free`; it does not provision databases, Qdrant, or R2.
+2. In the Render `ria-production` environment group, set:
+   - `DATABASE_URL`: Neon PostgreSQL connection string. The app normalizes `postgres://` and `postgresql://` prefixes for psycopg 3.
+   - `QDRANT_URL` and `QDRANT_API_KEY`: Qdrant Free cluster details.
+   - `GEMINI_API_KEY`: Google AI Studio key.
+   - `CORS_ORIGINS`: set this to the final Vercel origin after step 4, such as `https://your-project.vercel.app`, with no trailing slash.
+   - `S3_BUCKET`: R2 bucket name.
+   - `S3_REGION`: `auto`.
+   - `S3_ENDPOINT_URL`: account-specific R2 S3 API endpoint, for example `https://ACCOUNT_ID.r2.cloudflarestorage.com`.
+   - `S3_ACCESS_KEY_ID` and `S3_SECRET_ACCESS_KEY`: R2 credentials.
+3. Keep Blueprint values `RIA_ENV=production`, `INGESTION_MODE=inline`, `COOKIE_SECURE=true`, and `UPLOAD_STORAGE=s3`. Render generates the private `SECRET_KEY`. No Redis URL or worker is needed in this mode.
+4. Deploy the service and copy its public URL, for example `https://ria-api-xxxx.onrender.com`. Visit `/health`; it should show `"status":"ok"` and `"queue":"inline"`. If it fails, inspect Render logs and confirm that all provider environment variables are set.
 
 ### 4. Deploy the frontend on Vercel
 
-1. Import the same GitHub repository in Vercel and set **Root Directory** to `frontend`.
-2. Add the server-only environment variable `RIA_BACKEND_ORIGIN` to the Vercel deployment environment(s), with the Render API origin, for example `https://YOUR_RENDER_API` (no trailing slash). Redeploy after setting it. The Next.js rewrite proxies `/api/*` through Vercel so browser requests and secure auth cookies remain same-origin.
-3. Leave `NEXT_PUBLIC_API_BASE_URL` unset in production. The frontend defaults to relative `/api/*` requests in production and uses `http://localhost:8000` for local development.
-4. Open the Vercel URL, register a test account, create a collection, upload a small document, and wait for indexing. Verify a cited answer and sign-out/sign-in to check the secure cookie flow.
+1. Import `nejuwa/RAG` into Vercel and set **Root Directory** to `frontend`.
+2. Add `RIA_BACKEND_ORIGIN` for the **Production** environment, set to the Render API origin with no trailing slash, e.g. `https://ria-api-xxxx.onrender.com`. Leave `NEXT_PUBLIC_API_BASE_URL` unset.
+3. Deploy and note the production Vercel URL, e.g. `https://your-project.vercel.app`. Use the production URL for testing; Preview deployments may have different origins and are not configured here.
 
-### 5. Production notes
+### 5. Finish CORS and test
 
-- The first deployment starts with empty hosted PostgreSQL and Qdrant services; local accounts, conversations, uploads, and vectors are not migrated automatically.
-- Keep backups for PostgreSQL and object storage, monitor the Render worker and provider quotas, and rotate any credentials that may have been exposed.
-- Vercel preview deployments should use a separate backend/data environment if they must not access production data.
-- For troubleshooting, check Render API/worker logs and `/health` before changing app secrets or redeploying.
+1. In Render, set `CORS_ORIGINS` to the exact Vercel production origin. Save and redeploy the API if prompted.
+2. Open the Vercel URL, register, create a collection, upload a small document, wait for it to be indexed, and ask a question. Test sign-out and sign-in too.
+3. If the API is sleeping, the first request can take about a minute while Render starts it. Check Render logs, `/health`, and provider usage pages when troubleshooting.
+
+Do not commit provider credentials or either local `.env` file. Local accounts/data are not migrated. Monitor free quotas, and remember that inline jobs may be interrupted if the free API restarts while processing.

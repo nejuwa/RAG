@@ -1,4 +1,5 @@
 import os
+from dataclasses import replace
 
 os.environ["SECRET_KEY"] = "test-only-secret-key-that-is-at-least-32-bytes"
 os.environ["DATABASE_URL"] = "sqlite:///./test-ria.db"
@@ -14,6 +15,33 @@ from app import guest_routes, main, research_routes, retrieval
 from app.database import Base, SessionLocal, engine
 from app.models import Collection, Conversation, DocumentChunk, Message, ResearchRun, Source, User
 from app.providers import ProviderError
+
+
+def test_inline_health_does_not_require_redis(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        main,
+        "settings",
+        replace(main.settings, ingestion_mode="inline"),
+    )
+    monkeypatch.setattr(
+        main,
+        "get_vector_store",
+        lambda: SimpleNamespace(get_collections=lambda: []),
+    )
+    monkeypatch.setattr(
+        main.Redis,
+        "from_url",
+        lambda *_args, **_kwargs: pytest.fail(
+            "inline ingestion must not connect to Redis"
+        ),
+    )
+
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json()["checks"]["queue"] == "inline"
 
 
 @pytest.fixture

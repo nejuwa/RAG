@@ -13,9 +13,9 @@ logger = logging.getLogger(__name__)
 def enqueue_ingestion(
     source_id: str, background_tasks: BackgroundTasks | None = None
 ) -> None:
-    if settings.environment == "local":
+    if settings.ingestion_mode == "inline":
         if background_tasks is None:
-            raise RuntimeError("Local ingestion requires FastAPI background tasks.")
+            raise RuntimeError("Inline ingestion requires FastAPI background tasks.")
         background_tasks.add_task(process_source, source_id)
         return
     try:

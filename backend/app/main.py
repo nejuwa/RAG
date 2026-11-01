@@ -107,7 +107,7 @@ def health() -> JSONResponse:
         checks["vector_store"] = "unavailable"
     queue: Redis | None = None
     try:
-        if settings.environment == "local":
+        if settings.ingestion_mode == "inline":
             checks["queue"] = "inline"
         else:
             queue = Redis.from_url(settings.redis_url, socket_connect_timeout=2)

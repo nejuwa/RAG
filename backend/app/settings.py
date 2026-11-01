@@ -18,6 +18,10 @@ def _normalize_database_url(database_url: str) -> str:
 @dataclass(frozen=True)
 class Settings:
     environment: str = os.getenv("RIA_ENV", "development")
+    ingestion_mode: str = os.getenv(
+        "INGESTION_MODE",
+        "inline" if os.getenv("RIA_ENV", "development") == "local" else "queue",
+    ).lower()
     secret_key: str = os.getenv("SECRET_KEY", "")
     database_url: str = _normalize_database_url(
         os.getenv(
@@ -74,6 +78,8 @@ settings = Settings()
 def validate_settings() -> None:
     if len(settings.secret_key) < 32:
         raise RuntimeError("SECRET_KEY must be configured with at least 32 characters.")
+    if settings.ingestion_mode not in {"inline", "queue"}:
+        raise RuntimeError("INGESTION_MODE must be either inline or queue.")
     if settings.environment == "test":
         if not settings.database_url.startswith("sqlite"):
             raise RuntimeError("Tests must use the isolated SQLite test database.")

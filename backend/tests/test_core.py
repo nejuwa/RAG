@@ -8,7 +8,7 @@ os.environ["DATABASE_URL"] = "sqlite:///./test-ria.db"
 os.environ["RIA_ENV"] = "test"
 
 import pytest
-from fastapi import HTTPException
+from fastapi import BackgroundTasks, HTTPException
 from docx import Document
 
 from app.auth import hash_password, verify_password
@@ -20,6 +20,7 @@ from app.providers import GeminiProvider, ProviderError
 from app.settings import _normalize_database_url, settings, validate_settings
 from app.research_routes import _validate_upload_bytes
 from app import storage
+from app.jobs import enqueue_ingestion
 from app.web_fetch import WebFetchError, validate_public_url
 
 
@@ -69,6 +70,90 @@ def test_local_application_configuration_requires_postgresql(
     )
     monkeypatch.setattr("app.settings.settings", local_settings)
     with pytest.raises(RuntimeError, match="DATABASE_URL must point to PostgreSQL"):
+        validate_settings()
+
+
+def test_inline_ingestion_schedules_source_without_redis(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "app.jobs.settings",
+        replace(settings, ingestion_mode="inline"),
+    )
+    scheduled = BackgroundTasks()
+
+    enqueue_ingestion("source-1", scheduled)
+
+    assert len(scheduled.tasks) == 1
+    assert scheduled.tasks[0].func.__name__ == "process_source"
+    assert scheduled.tasks[0].args == ("source-1",)
+
+
+def test_inline_ingestion_requires_background_tasks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "app.jobs.settings",
+        replace(settings, ingestion_mode="inline"),
+    )
+    with pytest.raises(
+        RuntimeError, match="Inline ingestion requires FastAPI background tasks"
+    ):
+        enqueue_ingestion("source-1")
+
+
+def test_queue_ingestion_still_enqueues_rq_job(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    enqueued: list[tuple[tuple[object, ...], dict[str, object]]] = []
+
+    class FakeQueue:
+        def __init__(self, name: str, *, connection: object) -> None:
+            assert name == "ingestion"
+            assert connection == "redis-connection"
+
+        def enqueue(self, *args: object, **kwargs: object) -> None:
+            enqueued.append((args, kwargs))
+
+    monkeypatch.setattr(
+        "app.jobs.settings",
+        replace(settings, ingestion_mode="queue", redis_url="redis://test"),
+    )
+    monkeypatch.setattr(
+        "app.jobs.Redis.from_url",
+        lambda *_args, **_kwargs: "redis-connection",
+    )
+    monkeypatch.setattr("app.jobs.Queue", FakeQueue)
+
+    enqueue_ingestion("source-queue")
+
+    assert enqueued == [
+        (
+            ("app.ingestion.process_source", "source-queue"),
+            {
+                "job_timeout": 600,
+                "result_ttl": 3600,
+                "failure_ttl": 86400,
+            },
+        )
+    ]
+
+
+def test_application_configuration_rejects_unknown_ingestion_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "app.settings.settings",
+        replace(
+            settings,
+            environment="test",
+            ingestion_mode="unknown",
+            secret_key="test-only-secret-key-that-is-at-least-32-bytes",
+        ),
+    )
+    with pytest.raises(
+        RuntimeError, match="INGESTION_MODE must be either inline or queue"
+    ):
         validate_settings()
 
 

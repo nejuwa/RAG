@@ -5,9 +5,9 @@ envVarGroups:
         value: production
       - key: SECRET_KEY
         generateValue: true
+      - key: INGESTION_MODE
+        value: inline
       - key: DATABASE_URL
-        sync: false
-      - key: REDIS_URL
         sync: false
       - key: QDRANT_URL
         sync: false
@@ -42,7 +42,7 @@ services:
   - type: web
     name: ria-api
     runtime: python
-    plan: free   # <--- ADDED THIS to explicitly force free tier
+    plan: free
     rootDir: backend
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
